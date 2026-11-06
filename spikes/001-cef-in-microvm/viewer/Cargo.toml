@@ -1,0 +1,8 @@
+[package]
+name = "viewer"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+minifb = "0.28"

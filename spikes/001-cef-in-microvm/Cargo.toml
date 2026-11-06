@@ -1,0 +1,10 @@
+# Spike code: throwaway, and outside the main workspace on purpose. It needs
+# `unsafe` for FFI, which the trusted crates forbid.
+[workspace]
+resolver = "3"
+members = ["launcher", "engine", "viewer"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+publish = false

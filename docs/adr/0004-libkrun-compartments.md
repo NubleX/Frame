@@ -1,6 +1,6 @@
 # 0004: libkrun microVM compartments
 
-**Status:** accepted, 2026-11-06, pending Spike 1
+**Status:** accepted, 2026-11-06. Spike 1 passed: CEF runs in a 1 GB guest
 
 **Context.** Compartments need hardware isolation but must embed in an app and start fast. libkrun is a Rust library with KVM on Linux and Hypervisor.framework on macOS. crosvm has stronger device sandboxing and is the VMM in Android's stack.
 

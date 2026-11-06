@@ -23,10 +23,10 @@ if ldconfig -p 2>/dev/null | grep -q 'libkrunfw\.so'; then report "libkrunfw" ok
 for tool in cargo cmake ninja bwrap; do have "$tool"; done
 
 available_mib=$(awk '/MemAvailable/ { print int($2 / 1024) }' /proc/meminfo)
-if [ "$available_mib" -ge 3072 ]; then
+if [ "$available_mib" -ge 1024 ]; then
   report "free RAM ${available_mib} MiB" ok
 else
-  report "free RAM ${available_mib} MiB (want 3072)" no
+  report "free RAM ${available_mib} MiB (want 1024)" no
 fi
 
 printf '\n%s item(s) missing\n' "$missing"

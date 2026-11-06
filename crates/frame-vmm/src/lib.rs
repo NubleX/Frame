@@ -42,11 +42,11 @@ pub struct VirtualHardware {
     pub display_height: u16,
 }
 
-/// Identical for every web compartment on every host. Spike 4 may tune the
-/// CPU and memory numbers; they must stay the same across editions.
+/// Identical for every web compartment on every host. Spike 1 showed 1 GiB
+/// runs ordinary pages. These numbers must stay the same across editions.
 pub const CANONICAL_HARDWARE: VirtualHardware = VirtualHardware {
     vcpus: 2,
-    memory_mib: 2048,
+    memory_mib: 1024,
     display_width: 1920,
     display_height: 1080,
 };

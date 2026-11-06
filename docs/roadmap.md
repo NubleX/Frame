@@ -13,8 +13,8 @@ Durations are rough estimates, not measurements. Revise them after Phase 0.
 
 ## Phase 0 spikes
 
-1. CEF in libkrun, off-screen frames in a Rust window. See `spikes/001-cef-in-microvm/`.
-2. Print: JA4, JA4H, HTTP/2 and JS surface of CEF against stock Chromium of the same version. Check the default User-Agent has no CEF token. Packet capture must show no Google calls.
+1. **Passed.** CEF in libkrun, off-screen frames in a Rust window, in 1 GB. See [the results](../spikes/001-cef-in-microvm/RESULTS.md).
+2. Print: JA4, JA4H, HTTP/2 and JS surface of CEF against stock Chromium of the same version. Check the default User-Agent has no CEF token. Packet capture must show no Google calls. Settle the bundled font set.
 3. Gate path through tun2socks, kill switch, throughput.
 4. Response stripping: which headers are safe to remove, native CEF handlers versus a patch, speed cost.
 5. Servo renders Aurelia panels. Fallback is a Rust-native UI.
@@ -36,3 +36,5 @@ Durations are rough estimates, not measurements. Revise them after Phase 0.
 - Trademark check on "Frame" before the first paid release. Valve sells a product called Steam Frame.
 - A maximum CEF lag behind Chrome stable, as a release rule.
 - A build machine. Chromium cannot be built on the current dev box.
+- Run the guest as non-root with Chromium's sandbox on. Spike 1 ran as root with it off.
+- Measure scrolling, video, WebGL and several compartments at once. Spike 1 covered none of these.
