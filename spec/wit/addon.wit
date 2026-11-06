@@ -1,0 +1,99 @@
+// Frame add-on interface, first draft.
+//
+// Add-ons live on the inner side and attach to the membrane. Nothing here
+// reaches a page: there is no way to read or change web content, inject
+// script, or alter the outward print. Every import is checked by the
+// frame-policy guard, so a call can return `denied` at any time.
+package frame:addon@0.1.0;
+
+interface types {
+    /// A compartment, as named by the broker.
+    type compartment-id = u32;
+
+    /// Transport protocol of a flow.
+    enum protocol {
+        tcp,
+        udp,
+    }
+
+    /// One HTTP header, already sanitised by the broker.
+    record header {
+        name: string,
+        value: string,
+    }
+
+    /// A request seen by the engine.
+    record request-observed {
+        compartment: compartment-id,
+        request-id: u64,
+        method: string,
+        url: string,
+        resource-type: string,
+    }
+
+    /// A response seen by the engine.
+    record response-observed {
+        compartment: compartment-id,
+        request-id: u64,
+        status: u16,
+        headers: list<header>,
+    }
+
+    /// A network flow seen by the gate.
+    record flow-observed {
+        compartment: compartment-id,
+        protocol: protocol,
+        host: string,
+        port: u16,
+        bytes-out: u64,
+        bytes-in: u64,
+    }
+
+    /// Anything an add-on can observe.
+    variant observation {
+        request(request-observed),
+        response(response-observed),
+        %flow(flow-observed),
+    }
+
+    /// Why a call did not happen.
+    enum call-error {
+        /// Refused by policy.
+        denied,
+        /// Waiting for the user to approve it.
+        needs-approval,
+        /// The compartment does not exist.
+        no-such-compartment,
+    }
+}
+
+/// What an add-on may ask the broker to do.
+interface host {
+    use types.{compartment-id, call-error};
+
+    /// Sends a compartment to a URL. Outward: agents need user approval.
+    navigate: func(compartment: compartment-id, url: string) -> result<_, call-error>;
+
+    /// Lists compartments this add-on may see.
+    list-compartments: func() -> result<list<compartment-id>, call-error>;
+
+    /// Adds a line to the add-on's own log.
+    log: func(message: string);
+}
+
+/// What an add-on provides.
+interface handler {
+    use types.{observation};
+
+    /// Called once after the add-on is loaded.
+    start: func();
+
+    /// Called for each observation the add-on is allowed to see.
+    observe: func(event: observation);
+}
+
+/// The shape of every add-on.
+world addon {
+    import host;
+    export handler;
+}
