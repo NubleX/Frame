@@ -51,6 +51,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 | `frame-membrane` | The strict one-way wire format |
 | `frame-vmm` | The VMM boundary and fixed virtual hardware |
 | `frame-compartment` | Idempotent compartment lifecycle and crash recovery |
+| `frame-gate` | The only way out of a compartment. It cannot connect to the host or the local network |
 | `frame-siem` | Shield SIEM event store, ported from the browser extensions |
 | `frame-profile` | Role manifests |
 

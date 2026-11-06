@@ -1,0 +1,11 @@
+# The barebone browser. Outside the main workspace because the launcher and
+# engine call C libraries. The safety-critical logic does not live here: the
+# gate and the membrane are safe Rust crates in `crates/`.
+[workspace]
+resolver = "3"
+members = ["launcher", "engine", "viewer"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+publish = false

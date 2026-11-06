@@ -11,6 +11,10 @@ Durations are rough estimates, not measurements. Revise them after Phase 0.
 | 4 Agile | macOS, Windows, portable USB app, remote node, roaming mesh, draw-command streaming | Same print on every edition | 6-9 months |
 | 5 Metal | Bootable appliance OS on the SteamOS pattern, then phone and car, crowd-following shaping research | Hardware research confirmed, Pixel first | 12+ months |
 
+## Barebone browser
+
+**Working.** A usable browser in an isolated microVM, ahead of the remaining spikes, so problems are met in order of use. See [the prototype](../prototype/README.md), which also lists what it still lacks.
+
 ## Phase 0 spikes
 
 1. **Passed.** CEF in libkrun, off-screen frames in a Rust window, in 1 GB. See [the results](../spikes/001-cef-in-microvm/RESULTS.md).

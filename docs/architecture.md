@@ -40,7 +40,7 @@ Frame does not claim to be another product. A forged Googlebot fails reverse DNS
 |---|---|---|
 | 1 | No page capability exists in `frame-policy` or the WIT interface | Print test with add-ons loaded |
 | 2 | Fixed `CANONICAL_HARDWARE` in `frame-vmm`; Profiles have no print keys | Print gate against stock Chromium |
-| 3 | `VmSpec` derives the network from the kind; web cannot have an uplink | Real gate and kill switch test |
+| 3 | `VmSpec` derives the network from the kind; `frame-gate` can only connect to a `PublicAddr`; `prototype/test-isolation.sh` proves a real guest has no other way out | Gate in its own microVM |
 | 4 | `VmSpec` has no field for host paths or devices | Boot test probing the guest |
 
 ## Ownership

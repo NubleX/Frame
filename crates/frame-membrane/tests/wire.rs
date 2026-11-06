@@ -1,8 +1,10 @@
 //! Behaviour of the wire format against valid and hostile input.
 
+#![allow(clippy::unwrap_used)]
+
 use frame_membrane::{
-    Command, DecodeError, EncodeError, HEADER_LEN, Header, MAX_HEADERS, MAX_PAYLOAD, MAX_TEXT,
-    Observation, Protocol, VERSION, decode_command, decode_observation,
+    Command, DecodeError, EncodeError, HEADER_LEN, Header, Key, MAX_HEADERS, MAX_PAYLOAD, MAX_TEXT,
+    Modifiers, MouseButton, Observation, Protocol, VERSION, decode_command, decode_observation,
 };
 
 fn frame(kind: u8, payload: &[u8]) -> Vec<u8> {
@@ -134,7 +136,7 @@ fn wrong_version_is_refused() {
 
 #[test]
 fn undefined_kinds_are_refused() {
-    for kind in [0x00, 0x06, 0x7f, 0x80, 0x84, 0xff] {
+    for kind in [0x00, 0x07, 0x7f, 0x80, 0x8b, 0xff] {
         assert_eq!(
             decode_observation(&frame(kind, &[])),
             Err(DecodeError::UnknownKind),
@@ -333,4 +335,101 @@ fn mutated_valid_frames_never_panic_and_stay_consistent() -> Result<(), Box<dyn 
         }
     }
     Ok(())
+}
+
+#[test]
+fn input_commands_round_trip() {
+    let modifiers = Modifiers {
+        shift: true,
+        control: false,
+        alt: true,
+    };
+    for command in [
+        Command::Back,
+        Command::Forward,
+        Command::MouseMove { x: 1919, y: 1079 },
+        Command::MouseButton {
+            x: 10,
+            y: 20,
+            button: MouseButton::Right,
+            pressed: true,
+            clicks: 2,
+        },
+        Command::Wheel {
+            x: 1,
+            y: 2,
+            delta_x: -120,
+            delta_y: 120,
+        },
+        Command::Key {
+            key: Key::PageDown,
+            modifiers,
+        },
+        Command::Text { character: 'é' },
+    ] {
+        let frame = command.encode().unwrap();
+        assert_eq!(decode_command(&frame), Ok((command, frame.len())));
+    }
+}
+
+#[test]
+fn address_observation_round_trips() {
+    let observation = Observation::Address {
+        url: "https://example.com/".into(),
+    };
+    let frame = observation.encode().unwrap();
+    assert_eq!(decode_observation(&frame), Ok((observation, frame.len())));
+}
+
+#[test]
+fn input_commands_stay_one_way() {
+    let frame = Command::MouseMove { x: 1, y: 1 }.encode().unwrap();
+    assert_eq!(decode_observation(&frame), Err(DecodeError::WrongDirection));
+    let frame = Observation::Address { url: "a".into() }.encode().unwrap();
+    assert_eq!(decode_command(&frame), Err(DecodeError::WrongDirection));
+}
+
+#[test]
+fn refuses_bad_input_values() {
+    let mouse = Command::MouseButton {
+        x: 1,
+        y: 1,
+        button: MouseButton::Left,
+        pressed: true,
+        clicks: 1,
+    };
+    let mut frame = mouse.encode().unwrap();
+    let button = HEADER_LEN + 4;
+    frame[button] = 3;
+    assert_eq!(decode_command(&frame), Err(DecodeError::BadValue));
+    frame[button] = 0;
+    frame[button + 1] = 2;
+    assert_eq!(decode_command(&frame), Err(DecodeError::BadValue));
+    frame[button + 1] = 1;
+    frame[button + 2] = 0;
+    assert_eq!(decode_command(&frame), Err(DecodeError::BadValue));
+
+    let key = Command::Key {
+        key: Key::Enter,
+        modifiers: Modifiers::default(),
+    };
+    let mut frame = key.encode().unwrap();
+    frame[HEADER_LEN] = 200;
+    assert_eq!(decode_command(&frame), Err(DecodeError::BadValue));
+    frame[HEADER_LEN] = 0;
+    frame[HEADER_LEN + 1] = 8;
+    assert_eq!(decode_command(&frame), Err(DecodeError::BadValue));
+}
+
+#[test]
+fn refuses_control_and_invalid_characters() {
+    assert_eq!(
+        Command::Text { character: '\n' }.encode(),
+        Err(EncodeError::Invalid)
+    );
+    let mut frame = Command::Text { character: 'a' }.encode().unwrap();
+    frame[HEADER_LEN..].copy_from_slice(&0xd800u32.to_be_bytes());
+    assert_eq!(decode_command(&frame), Err(DecodeError::BadValue));
+    frame[HEADER_LEN..].copy_from_slice(&0x0au32.to_be_bytes());
+    assert_eq!(decode_command(&frame), Err(DecodeError::BadValue));
 }

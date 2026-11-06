@@ -30,9 +30,17 @@ const KIND_RESPONSE_RECEIVED: u8 = 0x02;
 const KIND_REQUEST_FINISHED: u8 = 0x03;
 const KIND_REQUEST_FAILED: u8 = 0x04;
 const KIND_FLOW: u8 = 0x05;
+const KIND_ADDRESS: u8 = 0x06;
 const KIND_NAVIGATE: u8 = 0x81;
 const KIND_RELOAD: u8 = 0x82;
 const KIND_STOP: u8 = 0x83;
+const KIND_BACK: u8 = 0x84;
+const KIND_FORWARD: u8 = 0x85;
+const KIND_MOUSE_MOVE: u8 = 0x86;
+const KIND_MOUSE_BUTTON: u8 = 0x87;
+const KIND_WHEEL: u8 = 0x88;
+const KIND_KEY: u8 = 0x89;
+const KIND_TEXT: u8 = 0x8a;
 
 /// One HTTP header as observed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,6 +112,95 @@ pub enum Observation {
         /// Bytes received.
         bytes_in: u64,
     },
+    /// The page's address changed.
+    Address {
+        /// Full URL now shown.
+        url: String,
+    },
+}
+
+/// A mouse button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseButton {
+    /// Left button.
+    Left,
+    /// Middle button.
+    Middle,
+    /// Right button.
+    Right,
+}
+
+/// A key that produces no text. The set is closed on purpose: the inner side
+/// can only press keys that exist here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Key {
+    /// Enter.
+    Enter,
+    /// Tab.
+    Tab,
+    /// Backspace.
+    Backspace,
+    /// Delete.
+    Delete,
+    /// Escape.
+    Escape,
+    /// Left arrow.
+    Left,
+    /// Right arrow.
+    Right,
+    /// Up arrow.
+    Up,
+    /// Down arrow.
+    Down,
+    /// Home.
+    Home,
+    /// End.
+    End,
+    /// Page up.
+    PageUp,
+    /// Page down.
+    PageDown,
+}
+
+const KEYS: [Key; 13] = [
+    Key::Enter,
+    Key::Tab,
+    Key::Backspace,
+    Key::Delete,
+    Key::Escape,
+    Key::Left,
+    Key::Right,
+    Key::Up,
+    Key::Down,
+    Key::Home,
+    Key::End,
+    Key::PageUp,
+    Key::PageDown,
+];
+
+/// Keys held with another key.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Modifiers {
+    /// Shift.
+    pub shift: bool,
+    /// Control.
+    pub control: bool,
+    /// Alt.
+    pub alt: bool,
+}
+
+impl Modifiers {
+    fn to_bits(self) -> u8 {
+        u8::from(self.shift) | u8::from(self.control) << 1 | u8::from(self.alt) << 2
+    }
+
+    fn from_bits(bits: u8) -> Option<Self> {
+        (bits <= 0b111).then_some(Self {
+            shift: bits & 1 != 0,
+            control: bits & 2 != 0,
+            alt: bits & 4 != 0,
+        })
+    }
 }
 
 /// What the inner side asks for. Inner to outer only.
@@ -118,6 +215,53 @@ pub enum Command {
     Reload,
     /// Stop loading.
     Stop,
+    /// Go back in history.
+    Back,
+    /// Go forward in history.
+    Forward,
+    /// The pointer moved. Coordinates are in guest display pixels.
+    MouseMove {
+        /// Horizontal position.
+        x: u16,
+        /// Vertical position.
+        y: u16,
+    },
+    /// A mouse button changed.
+    MouseButton {
+        /// Horizontal position.
+        x: u16,
+        /// Vertical position.
+        y: u16,
+        /// Which button.
+        button: MouseButton,
+        /// Pressed or released.
+        pressed: bool,
+        /// Click count, from one to three.
+        clicks: u8,
+    },
+    /// The wheel turned.
+    Wheel {
+        /// Horizontal position.
+        x: u16,
+        /// Vertical position.
+        y: u16,
+        /// Sideways movement.
+        delta_x: i16,
+        /// Vertical movement.
+        delta_y: i16,
+    },
+    /// A key without text.
+    Key {
+        /// Which key.
+        key: Key,
+        /// Keys held with it.
+        modifiers: Modifiers,
+    },
+    /// One typed character.
+    Text {
+        /// The character.
+        character: char,
+    },
 }
 
 /// Why a frame was refused.
@@ -180,6 +324,14 @@ fn text_is_valid(text: &str) -> bool {
             .any(|character| character.is_control() || is_bidi_control(character))
 }
 
+fn character_is_valid(character: char) -> bool {
+    !character.is_control() && !is_bidi_control(character)
+}
+
+fn clicks_are_valid(clicks: u8) -> bool {
+    (1..=3).contains(&clicks)
+}
+
 fn status_is_valid(status: u16) -> bool {
     (100..=599).contains(&status)
 }
@@ -208,6 +360,14 @@ impl<'a> Reader<'a> {
 
     fn u16(&mut self) -> Result<u16, DecodeError> {
         Ok(u16::from_be_bytes(self.array()?))
+    }
+
+    fn i16(&mut self) -> Result<i16, DecodeError> {
+        Ok(i16::from_be_bytes(self.array()?))
+    }
+
+    fn u32(&mut self) -> Result<u32, DecodeError> {
+        Ok(u32::from_be_bytes(self.array()?))
     }
 
     fn u64(&mut self) -> Result<u64, DecodeError> {
@@ -265,11 +425,11 @@ fn split_frame(buffer: &[u8]) -> Result<(u8, &[u8], usize), DecodeError> {
 }
 
 fn is_observation_kind(kind: u8) -> bool {
-    (KIND_REQUEST_STARTED..=KIND_FLOW).contains(&kind)
+    (KIND_REQUEST_STARTED..=KIND_ADDRESS).contains(&kind)
 }
 
 fn is_command_kind(kind: u8) -> bool {
-    (KIND_NAVIGATE..=KIND_STOP).contains(&kind)
+    (KIND_NAVIGATE..=KIND_TEXT).contains(&kind)
 }
 
 /// Decodes one observation. Returns it with the bytes consumed.
@@ -336,6 +496,9 @@ pub fn decode_observation(buffer: &[u8]) -> Result<(Observation, usize), DecodeE
             bytes_out: reader.u64()?,
             bytes_in: reader.u64()?,
         },
+        KIND_ADDRESS => Observation::Address {
+            url: reader.text()?,
+        },
         _ => return Err(DecodeError::UnknownKind),
     };
     reader.finish()?;
@@ -358,6 +521,50 @@ pub fn decode_command(buffer: &[u8]) -> Result<(Command, usize), DecodeError> {
         },
         KIND_RELOAD => Command::Reload,
         KIND_STOP => Command::Stop,
+        KIND_BACK => Command::Back,
+        KIND_FORWARD => Command::Forward,
+        KIND_MOUSE_MOVE => Command::MouseMove {
+            x: reader.u16()?,
+            y: reader.u16()?,
+        },
+        KIND_MOUSE_BUTTON => {
+            let (x, y) = (reader.u16()?, reader.u16()?);
+            let button = match reader.u8()? {
+                0 => MouseButton::Left,
+                1 => MouseButton::Middle,
+                2 => MouseButton::Right,
+                _ => return Err(DecodeError::BadValue),
+            };
+            let pressed = reader.flag()?;
+            let clicks = reader.u8()?;
+            if !clicks_are_valid(clicks) {
+                return Err(DecodeError::BadValue);
+            }
+            Command::MouseButton {
+                x,
+                y,
+                button,
+                pressed,
+                clicks,
+            }
+        }
+        KIND_WHEEL => Command::Wheel {
+            x: reader.u16()?,
+            y: reader.u16()?,
+            delta_x: reader.i16()?,
+            delta_y: reader.i16()?,
+        },
+        KIND_KEY => Command::Key {
+            key: *KEYS
+                .get(usize::from(reader.u8()?))
+                .ok_or(DecodeError::BadValue)?,
+            modifiers: Modifiers::from_bits(reader.u8()?).ok_or(DecodeError::BadValue)?,
+        },
+        KIND_TEXT => Command::Text {
+            character: char::from_u32(reader.u32()?)
+                .filter(|character| character_is_valid(*character))
+                .ok_or(DecodeError::BadValue)?,
+        },
         _ => return Err(DecodeError::UnknownKind),
     };
     reader.finish()?;
@@ -380,6 +587,14 @@ impl Writer {
     }
 
     fn u16(&mut self, value: u16) {
+        self.payload.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn i16(&mut self, value: i16) {
+        self.payload.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn u32(&mut self, value: u32) {
         self.payload.extend_from_slice(&value.to_be_bytes());
     }
 
@@ -480,6 +695,10 @@ impl Observation {
                 writer.u64(*bytes_in);
                 KIND_FLOW
             }
+            Self::Address { url } => {
+                writer.text(url)?;
+                KIND_ADDRESS
+            }
         };
         writer.finish(kind)
     }
@@ -499,6 +718,62 @@ impl Command {
             }
             Self::Reload => KIND_RELOAD,
             Self::Stop => KIND_STOP,
+            Self::Back => KIND_BACK,
+            Self::Forward => KIND_FORWARD,
+            Self::MouseMove { x, y } => {
+                writer.u16(*x);
+                writer.u16(*y);
+                KIND_MOUSE_MOVE
+            }
+            Self::MouseButton {
+                x,
+                y,
+                button,
+                pressed,
+                clicks,
+            } => {
+                if !clicks_are_valid(*clicks) {
+                    return Err(EncodeError::Invalid);
+                }
+                writer.u16(*x);
+                writer.u16(*y);
+                writer.u8(match button {
+                    MouseButton::Left => 0,
+                    MouseButton::Middle => 1,
+                    MouseButton::Right => 2,
+                });
+                writer.u8(u8::from(*pressed));
+                writer.u8(*clicks);
+                KIND_MOUSE_BUTTON
+            }
+            Self::Wheel {
+                x,
+                y,
+                delta_x,
+                delta_y,
+            } => {
+                writer.u16(*x);
+                writer.u16(*y);
+                writer.i16(*delta_x);
+                writer.i16(*delta_y);
+                KIND_WHEEL
+            }
+            Self::Key { key, modifiers } => {
+                let index = KEYS
+                    .iter()
+                    .position(|known| known == key)
+                    .ok_or(EncodeError::Invalid)?;
+                writer.u8(u8::try_from(index).map_err(|_| EncodeError::Invalid)?);
+                writer.u8(modifiers.to_bits());
+                KIND_KEY
+            }
+            Self::Text { character } => {
+                if !character_is_valid(*character) {
+                    return Err(EncodeError::Invalid);
+                }
+                writer.u32(u32::from(*character));
+                KIND_TEXT
+            }
         };
         writer.finish(kind)
     }
