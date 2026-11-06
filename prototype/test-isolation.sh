@@ -81,5 +81,24 @@ line() { grep -m1 "^$1" "$log"; }
 [ "$(line PUBLIC)" = "PUBLIC []" ] && pass "no direct internet, gate is the only way" || fail "$(line PUBLIC)"
 [ "$(line ROOT_WRITE)" = "ROOT_WRITE no" ] && pass "guest root is read-only" || fail "guest wrote to its root"
 [ -e "$root/root-write-test" ] && fail "guest write reached the host"
+
+# The real image: Chromium's sandbox must be on, as the guest kernel reports it.
+if [ -d "$work/root/frame" ]; then
+  krun=$(realpath "$work/prefix/krun")
+  "$work/target/release/frame-gate" "$run/gate.sock" 2> /dev/null &
+  gate=$!
+  LD_LIBRARY_PATH="$krun" timeout 12 "$work/target/release/launcher" "$work/root" 1024 2 "$krun" "$run" -- \
+    /bin/start '--frame-url=data:text/html,sandbox' > "$work/sandbox.log" 2>&1
+  kill "$gate" 2>/dev/null
+  log="$work/sandbox.log"
+  grep -q '^SANDBOX' "$log" || fail "no sandbox report: $(tail -2 "$log" | cut -c1-120)"
+  grep -q 'FATAL' "$log" && fail "Chromium refused to start"
+  grep -q '^SANDBOX.*uid=0 ' "$log" && fail "a browser process runs as root" || pass "no browser process runs as root"
+  grep -Eq '^SANDBOX .*seccomp=2 nspid=[2-9]' "$log" \
+    && pass "sandboxed processes have seccomp and their own PID namespace" \
+    || fail "no process is sandboxed"
+  grep -Eq '^SANDBOX .*NetworkService .*seccomp=2' "$log" \
+    && pass "the network service is sandboxed" || fail "the network service is not sandboxed"
+fi
 echo "failures: $fails"
 exit "$fails"

@@ -5,8 +5,8 @@
 //! - membrane: typed commands in, observations out
 //! - gate: Chromium's SOCKS5 proxy traffic, forwarded from guest loopback
 //!
-//! Not yet safe enough: the guest runs as root with Chromium's own sandbox
-//! off. The microVM is the boundary until that is fixed.
+//! The engine gives up root as its first act and runs with Chromium's sandbox
+//! on, so a hacked renderer is walled in twice: by the sandbox, then the VM.
 
 use cef::args::Args;
 use cef::*;
@@ -26,6 +26,8 @@ const HOST_CID: u32 = 2;
 const PIXELS_PORT: u32 = 5000;
 const GATE_PORT: u32 = 5001;
 const MEMBRANE_PORT: u32 = 5002;
+/// The unprivileged user the browser runs as inside the guest.
+const GUEST_USER: libc::uid_t = 1000;
 const PROXY_ADDRESS: &str = "127.0.0.1:1080";
 
 const EVENTFLAG_SHIFT_DOWN: u32 = 1 << 1;
@@ -339,6 +341,78 @@ fn read_commands(mut host: UnixStream, browser: BrowserSlot) {
     }
 }
 
+/// Refuses to continue unless root is gone for good. Chromium's sandbox will
+/// not run as root, and nothing here needs it after the guest has booted.
+fn drop_root() -> Result<(), String> {
+    // SAFETY: plain system calls with no pointers but a null, empty group list.
+    unsafe {
+        if libc::getuid() != 0 {
+            return Ok(());
+        }
+        if libc::setgroups(0, std::ptr::null()) != 0
+            || libc::setgid(GUEST_USER) != 0
+            || libc::setuid(GUEST_USER) != 0
+        {
+            return Err(format!("{}", std::io::Error::last_os_error()));
+        }
+        if libc::setuid(0) == 0 {
+            return Err("root could be regained".into());
+        }
+        // Changing user marks a process non-dumpable, which makes its own
+        // /proc files root-owned. Chromium's sandbox must write to them.
+        if libc::prctl(libc::PR_SET_DUMPABLE, 1) != 0 {
+            return Err(format!("{}", std::io::Error::last_os_error()));
+        }
+    }
+    Ok(())
+}
+
+fn status_field<'a>(status: &'a str, key: &str) -> &'a str {
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix(key))
+        .unwrap_or("?")
+        .trim()
+}
+
+/// Prints each child process's real state, as the kernel reports it, so a
+/// test can prove the sandbox is on instead of trusting a setting.
+fn report_sandbox() {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(command) = std::fs::read(entry.path().join("cmdline")) else {
+            continue;
+        };
+        let flag = |name: &[u8]| {
+            command
+                .split(|byte| *byte == 0)
+                .find_map(|arg| arg.strip_prefix(name))
+                .map(|value| String::from_utf8_lossy(value).into_owned())
+        };
+        let kind = flag(b"--type=").map(|kind| {
+            format!(
+                "{kind}/{}",
+                flag(b"--utility-sub-type=").unwrap_or_default()
+            )
+        });
+        let (Some(kind), Ok(status)) = (kind, std::fs::read_to_string(entry.path().join("status")))
+        else {
+            continue;
+        };
+        println!(
+            "SANDBOX type={kind} uid={} seccomp={} nspid={}",
+            status_field(&status, "Uid:")
+                .split_whitespace()
+                .next()
+                .unwrap_or("?"),
+            status_field(&status, "Seccomp:"),
+            status_field(&status, "NSpid:").split_whitespace().count(),
+        );
+    }
+}
+
 fn field_kib(text: &str, key: &str) -> u64 {
     text.lines()
         .find(|line| line.starts_with(key))
@@ -374,6 +448,7 @@ fn report_memory(started: Instant) {
             field_kib(&meminfo, "Shmem:") / 1024,
             rss_kib / 1024,
         );
+        report_sandbox();
     }
 }
 
@@ -609,6 +684,10 @@ wrap_app! {
 }
 
 fn main() {
+    if let Err(error) = drop_root() {
+        eprintln!("engine: refusing to run: {error}");
+        std::process::exit(1);
+    }
     let started = Instant::now();
     let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
     let args = Args::new();
@@ -654,7 +733,6 @@ fn main() {
     let mut app = EngineApp::new(url, latest, started, browser, sink);
     let settings = Settings {
         windowless_rendering_enabled: true as _,
-        no_sandbox: true as _,
         root_cache_path: "/tmp/cef".into(),
         log_severity: LogSeverity::ERROR,
         ..Default::default()

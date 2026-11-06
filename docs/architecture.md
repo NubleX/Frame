@@ -43,6 +43,10 @@ Frame does not claim to be another product. A forged Googlebot fails reverse DNS
 | 3 | `VmSpec` derives the network from the kind; `frame-gate` can only connect to a `PublicAddr`; `prototype/test-isolation.sh` proves a real guest has no other way out | Gate in its own microVM |
 | 4 | `VmSpec` has no field for host paths or devices | Boot test probing the guest |
 
+## One guest, thin host
+
+The web only ever meets the same Linux guest image, whatever the host OS. Only three seams are written per OS: the hypervisor, the self-jail and the channel. See [ADR 0009](adr/0009-one-guest-thin-host.md).
+
 ## Ownership
 
 | State | Owner |

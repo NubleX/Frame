@@ -1,16 +1,25 @@
-//! Runs the gate on a Unix socket. Usage: `frame-gate <socket>`
+//! Runs the gate. Usage: `frame-gate <socket>`
+//!
+//! Only this listener is per OS. The rules live in the library.
 
 use frame_gate::{SystemResolver, handle};
-use std::fs::{Permissions, remove_file, set_permissions};
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixListener;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Open connections allowed for one compartment.
 const MAX_CONNECTIONS: usize = 256;
 
+#[cfg(not(unix))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    Err("no channel listener for this OS yet".into())
+}
+
+#[cfg(unix)]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use std::fs::{Permissions, remove_file, set_permissions};
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::UnixListener;
+
     let socket = std::env::args()
         .nth(1)
         .ok_or("usage: frame-gate <socket>")?;

@@ -1,24 +1,17 @@
 //! Starts one web compartment. Before any VM code runs, this process jails
-//! itself: no network, no view of the host's files or processes, no
-//! privileges. This is code, not host setup, so every machine gets the same
-//! jail, and if any step fails the compartment does not start.
+//! itself: see `jail`. This is code, not host setup, and if any step fails the
+//! compartment does not start.
 //!
 //! The guest has no network device. Its only channels are three vsock ports,
 //! each mapped to one Unix socket in `<sockets>`.
 //!
 //! Usage: launcher <root> <memory-mib> <vcpus> <krun-dir> <sockets> -- <cmd> [args]
 
-use caps::{CapSet, clear};
-use nix::mount::{MntFlags, MsFlags, mount, umount2};
-use nix::sched::{CloneFlags, unshare};
-use nix::sys::prctl::{set_no_new_privs, set_pdeathsig};
-use nix::sys::signal::Signal;
-use nix::sys::statvfs::{FsFlags, statvfs};
-use nix::sys::wait::{WaitStatus, waitpid};
-use nix::unistd::{ForkResult, Gid, Uid, chdir, fork, pivot_root};
+mod jail;
+
+use jail::{Entered, JailPaths};
 use std::ffi::{CString, c_char};
-use std::fs::{self, File};
-use std::path::{Path, PathBuf};
+use std::fs;
 use std::ptr;
 
 unsafe extern "C" {
@@ -46,165 +39,12 @@ const CHANNELS: [(u32, &str); 3] = [
 ];
 /// Off: guest sockets stay in the guest instead of becoming host sockets.
 const NO_TSI: u32 = 0;
-const JAIL_ROOT: &str = "/mnt";
 const GUEST_ROOT: &str = "/guest";
 
-type Outcome<T = ()> = Result<T, String>;
+pub type Outcome<T = ()> = Result<T, String>;
 
-fn step<T, E: std::fmt::Display>(name: &str, result: Result<T, E>) -> Outcome<T> {
+pub fn step<T, E: std::fmt::Display>(name: &str, result: Result<T, E>) -> Outcome<T> {
     result.map_err(|error| format!("{name}: {error}"))
-}
-
-fn inside(path: &Path) -> PathBuf {
-    Path::new(JAIL_ROOT).join(path.strip_prefix("/").unwrap_or(path))
-}
-
-fn enter_namespaces() -> Outcome {
-    let (uid, gid) = (Uid::current(), Gid::current());
-    step(
-        "namespaces (unprivileged user namespaces must be allowed)",
-        unshare(
-            CloneFlags::CLONE_NEWUSER
-                | CloneFlags::CLONE_NEWNS
-                | CloneFlags::CLONE_NEWNET
-                | CloneFlags::CLONE_NEWIPC
-                | CloneFlags::CLONE_NEWUTS
-                | CloneFlags::CLONE_NEWPID,
-        ),
-    )?;
-    step("setgroups", fs::write("/proc/self/setgroups", "deny"))?;
-    step(
-        "uid map",
-        fs::write("/proc/self/uid_map", format!("{uid} {uid} 1")),
-    )?;
-    step(
-        "gid map",
-        fs::write("/proc/self/gid_map", format!("{gid} {gid} 1")),
-    )
-}
-
-/// Flags the kernel will not let an unprivileged remount drop.
-fn locked_flags(target: &Path) -> Outcome<MsFlags> {
-    let flags = step("statvfs", statvfs(target))?.flags();
-    let mut kept = MsFlags::MS_NOSUID;
-    for (from, to) in [
-        (FsFlags::ST_NODEV, MsFlags::MS_NODEV),
-        (FsFlags::ST_NOEXEC, MsFlags::MS_NOEXEC),
-        (FsFlags::ST_NOATIME, MsFlags::MS_NOATIME),
-        (FsFlags::ST_NODIRATIME, MsFlags::MS_NODIRATIME),
-        (FsFlags::ST_RELATIME, MsFlags::MS_RELATIME),
-    ] {
-        if flags.contains(from) {
-            kept |= to;
-        }
-    }
-    Ok(kept)
-}
-
-fn bind(source: &Path, target: &Path, read_only: bool) -> Outcome {
-    if source.is_dir() {
-        step("bind target", fs::create_dir_all(target))?;
-    } else {
-        if let Some(parent) = target.parent() {
-            step("bind parent", fs::create_dir_all(parent))?;
-        }
-        step("bind file", File::create(target))?;
-    }
-    step(
-        "bind",
-        mount(
-            Some(source),
-            target,
-            None::<&str>,
-            MsFlags::MS_BIND,
-            None::<&str>,
-        ),
-    )?;
-    if read_only {
-        let flags = MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY;
-        step(
-            "read-only remount",
-            mount(
-                None::<&str>,
-                target,
-                None::<&str>,
-                flags | locked_flags(target)?,
-                None::<&str>,
-            ),
-        )?;
-    }
-    Ok(())
-}
-
-/// Leaves the VMM a root holding only what it needs. The rest of the host's
-/// files do not exist from here on.
-fn build_root(guest_root: &Path, krun_dir: &Path, sockets: &Path) -> Outcome {
-    let root = Path::new(JAIL_ROOT);
-    step(
-        "private mounts",
-        mount(
-            None::<&str>,
-            "/",
-            None::<&str>,
-            MsFlags::MS_REC | MsFlags::MS_PRIVATE,
-            None::<&str>,
-        ),
-    )?;
-    step(
-        "jail tmpfs",
-        mount(
-            Some("tmpfs"),
-            root,
-            Some("tmpfs"),
-            MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
-            Some("size=1m,mode=755"),
-        ),
-    )?;
-    bind(guest_root, &root.join("guest"), true)?;
-    bind(krun_dir, &inside(krun_dir), true)?;
-    bind(sockets, &root.join("sockets"), true)?;
-    for device in ["/dev/kvm", "/dev/null", "/dev/urandom"] {
-        bind(Path::new(device), &inside(Path::new(device)), false)?;
-    }
-    let proc = root.join("proc");
-    step("proc dir", fs::create_dir_all(&proc))?;
-    step(
-        "proc",
-        mount(
-            Some("proc"),
-            &proc,
-            Some("proc"),
-            MsFlags::MS_NOSUID | MsFlags::MS_NODEV | MsFlags::MS_NOEXEC,
-            None::<&str>,
-        ),
-    )?;
-    step("old root dir", fs::create_dir_all(root.join("old")))?;
-    step("enter jail", chdir(root))?;
-    step("pivot", pivot_root(".", "old"))?;
-    step("enter root", chdir("/"))?;
-    step("drop host files", umount2("/old", MntFlags::MNT_DETACH))?;
-    step("remove old root", fs::remove_dir("/old"))?;
-    step(
-        "read-only jail",
-        mount(
-            None::<&str>,
-            "/",
-            None::<&str>,
-            MsFlags::MS_BIND
-                | MsFlags::MS_REMOUNT
-                | MsFlags::MS_RDONLY
-                | locked_flags(Path::new("/"))?,
-            None::<&str>,
-        ),
-    )
-}
-
-fn drop_privileges() -> Outcome {
-    step("no new privileges", set_no_new_privs())?;
-    for set in [CapSet::Inheritable, CapSet::Effective, CapSet::Permitted] {
-        step("capabilities", clear(None, set))?;
-    }
-    Ok(())
 }
 
 fn check(name: &str, code: i32) -> Outcome {
@@ -283,17 +123,14 @@ fn run() -> Outcome<i32> {
     let krun_dir = step("krun path", fs::canonicalize(krun_dir))?;
     let sockets = step("socket path", fs::canonicalize(sockets))?;
 
-    enter_namespaces()?;
-    // SAFETY: no other threads exist yet, so the child inherits a sound state.
-    match step("fork", unsafe { fork() })? {
-        ForkResult::Parent { child } => match step("wait", waitpid(child, None))? {
-            WaitStatus::Exited(_, code) => Ok(code),
-            _ => Ok(1),
-        },
-        ForkResult::Child => {
-            step("parent watch", set_pdeathsig(Signal::SIGKILL))?;
-            build_root(&guest_root, &krun_dir, &sockets)?;
-            drop_privileges()?;
+    let paths = JailPaths {
+        guest_root,
+        krun_dir,
+        sockets,
+    };
+    match jail::enter(&paths)? {
+        Entered::Supervisor(code) => Ok(code),
+        Entered::Jailed => {
             start_vm(memory, vcpus, command)?;
             Ok(0)
         }

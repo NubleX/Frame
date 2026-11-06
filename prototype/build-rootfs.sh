@@ -49,19 +49,19 @@ cat > "$out/etc/fonts/fonts.conf" <<'CONF'
 CONF
 # No resolver here: names go to the gate, so the guest never learns the host's.
 echo 'hosts: files' > "$out/etc/nsswitch.conf"
-echo 'root:x:0:0:root:/tmp:/bin/sh' > "$out/etc/passwd"
+printf 'root:x:0:0:root:/tmp:/bin/sh\nframe:x:1000:1000:frame:/tmp:/bin/sh\n' > "$out/etc/passwd"
 
 cat > "$out/bin/start" <<'SH'
 #!/bin/sh
 # Keep scratch data in guest RAM instead of writing through to the host.
 mkdir -p /dev/shm
-mount -t tmpfs -o size=128m tmpfs /dev/shm
-mount -t tmpfs -o size=128m tmpfs /tmp
+mount -t tmpfs -o size=128m,mode=1777 tmpfs /dev/shm
+mount -t tmpfs -o size=128m,mode=1777 tmpfs /tmp
 export LD_LIBRARY_PATH=/frame
 # The flags live in the image, so every machine runs the same browser.
 exec /frame/engine --ozone-platform=headless --disable-gpu --disable-gpu-compositing \
   --proxy-server=socks5://127.0.0.1:1080 '--proxy-bypass-list=<-loopback>' \
-  --disk-cache-size=33554432 "$@"
+  --enable-features=NetworkServiceSandbox --disk-cache-size=33554432 "$@"
 SH
 chmod 755 "$out/bin/start"
 du -sh "$out"

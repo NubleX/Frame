@@ -40,5 +40,5 @@ Durations are rough estimates, not measurements. Revise them after Phase 0.
 - Trademark check on "Frame" before the first paid release. Valve sells a product called Steam Frame.
 - A maximum CEF lag behind Chrome stable, as a release rule.
 - A build machine. Chromium cannot be built on the current dev box.
-- Run the guest as non-root with Chromium's sandbox on. Spike 1 ran as root with it off.
+- Host backends for macOS and Windows, per [ADR 0009](adr/0009-one-guest-thin-host.md). Windows needs a hypervisor choice, since libkrun does not run there.
 - Measure scrolling, video, WebGL and several compartments at once. Spike 1 covered none of these.

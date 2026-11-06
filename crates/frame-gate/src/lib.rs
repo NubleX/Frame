@@ -16,7 +16,6 @@ use std::net::{
     IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, SocketAddrV4, SocketAddrV6, TcpStream,
     ToSocketAddrs,
 };
-use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 /// Longest host name in DNS.
@@ -152,6 +151,39 @@ impl Resolver for SystemResolver {
     }
 }
 
+/// A connected channel to one compartment. This is the only thing the gate
+/// needs from the host OS: a Unix socket here, something else elsewhere. The
+/// rules above it are the same on every machine.
+pub trait Channel: Read + Write + Send + Sized + 'static {
+    /// A second handle on the same channel.
+    ///
+    /// # Errors
+    /// Any OS failure.
+    fn duplicate(&self) -> io::Result<Self>;
+    /// Limits how long a read may wait. `None` removes the limit.
+    ///
+    /// # Errors
+    /// Any OS failure.
+    fn set_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+    /// Closes both directions.
+    fn close(&self);
+}
+
+#[cfg(unix)]
+impl Channel for std::os::unix::net::UnixStream {
+    fn duplicate(&self) -> io::Result<Self> {
+        self.try_clone()
+    }
+
+    fn set_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        self.set_read_timeout(timeout)
+    }
+
+    fn close(&self) {
+        let _ = self.shutdown(Shutdown::Both);
+    }
+}
+
 fn read_array<const N: usize>(stream: &mut impl Read) -> Result<[u8; N], GateError> {
     let mut bytes = [0; N];
     stream
@@ -268,15 +300,15 @@ fn connect_first(routes: &[PublicAddr]) -> Result<TcpStream, GateError> {
         .ok_or(GateError::Unreachable)
 }
 
-fn relay(mut client: UnixStream, mut remote: TcpStream) -> Result<(), GateError> {
-    let mut client_reader = client.try_clone().map_err(|_| GateError::Unreachable)?;
+fn relay(mut client: impl Channel, mut remote: TcpStream) -> Result<(), GateError> {
+    let mut client_reader = client.duplicate().map_err(|_| GateError::Unreachable)?;
     let mut remote_writer = remote.try_clone().map_err(|_| GateError::Unreachable)?;
     let upload = std::thread::spawn(move || {
         let _ = io::copy(&mut client_reader, &mut remote_writer);
         let _ = remote_writer.shutdown(Shutdown::Write);
     });
     let _ = io::copy(&mut remote, &mut client);
-    let _ = client.shutdown(Shutdown::Both);
+    client.close();
     let _ = upload.join();
     Ok(())
 }
@@ -285,9 +317,9 @@ fn relay(mut client: UnixStream, mut remote: TcpStream) -> Result<(), GateError>
 ///
 /// # Errors
 /// The reason the request was refused. The guest has already been told.
-pub fn handle(mut client: UnixStream, resolver: &impl Resolver) -> Result<(), GateError> {
+pub fn handle(mut client: impl Channel, resolver: &impl Resolver) -> Result<(), GateError> {
     client
-        .set_read_timeout(Some(REQUEST_TIMEOUT))
+        .set_timeout(Some(REQUEST_TIMEOUT))
         .map_err(|_| GateError::Unreachable)?;
     let outcome = negotiate(&mut client).and_then(|target| {
         let connected = route(&target, resolver).and_then(|routes| connect_first(&routes));
@@ -300,7 +332,7 @@ pub fn handle(mut client: UnixStream, resolver: &impl Resolver) -> Result<(), Ga
         Ok(remote) => {
             reply(&mut client, REPLY_OK)?;
             client
-                .set_read_timeout(None)
+                .set_timeout(None)
                 .map_err(|_| GateError::Unreachable)?;
             relay(client, remote)
         }
