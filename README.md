@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/frame-banner.jpeg" alt="Frame: a barebone, stripped-down privacy browser" width="860">
+<img src="assets/frame-banner.jpeg" alt="Frame: a barebone, stripped-down privacy browser" width="460">
 
 # Frame
 
@@ -50,7 +50,7 @@ It is an [ID ArtCraft](https://idarti.com) project, free software under the GPL.
 </tr>
 <tr>
 <td align="center">A real site, in a microVM</td>
-<td align="center">Chromium's internal pages work too</td>
+<td align="center">CFE completely stripped and truncated</td>
 </tr>
 </table>
 
