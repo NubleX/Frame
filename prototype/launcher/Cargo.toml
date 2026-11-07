@@ -6,4 +6,4 @@ publish.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 caps = "0.5"
-nix = { version = "0.30", features = ["fs", "mount", "process", "sched", "signal", "user"] }
+nix = { version = "0.30", features = ["fs", "mount", "poll", "process", "sched", "signal", "user"] }

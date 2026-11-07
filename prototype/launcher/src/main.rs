@@ -5,7 +5,10 @@
 //! The guest has no network device. Its only channels are three vsock ports,
 //! each mapped to one Unix socket in `<sockets>`.
 //!
-//! Usage: launcher <root> <memory-mib> <vcpus> <krun-dir> <sockets> -- <cmd> [args]
+//! With `--lifeline` the compartment dies when stdin closes, so it cannot
+//! outlive the program that started it.
+//!
+//! Usage: launcher <root> <memory-mib> <vcpus> <krun-dir> <sockets> [--lifeline] -- <cmd> [args]
 
 mod jail;
 
@@ -112,7 +115,7 @@ fn run() -> Outcome<i32> {
         .get(1..)
         .filter(|c| !c.is_empty())
         .ok_or("no command")?;
-    let [guest_root, memory, vcpus, krun_dir, sockets] = options else {
+    let [guest_root, memory, vcpus, krun_dir, sockets, tail @ ..] = options else {
         return Err(
             "usage: launcher <root> <memory-mib> <vcpus> <krun-dir> <sockets> -- <cmd>".into(),
         );
@@ -128,7 +131,8 @@ fn run() -> Outcome<i32> {
         krun_dir,
         sockets,
     };
-    match jail::enter(&paths)? {
+    let lifeline = tail.iter().any(|option| option == "--lifeline");
+    match jail::enter(&paths, lifeline)? {
         Entered::Supervisor(code) => Ok(code),
         Entered::Jailed => {
             start_vm(memory, vcpus, command)?;

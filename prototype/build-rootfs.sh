@@ -64,4 +64,11 @@ exec /frame/engine --ozone-platform=headless --disable-gpu --disable-gpu-composi
   --enable-features=NetworkServiceSandbox --disk-cache-size=33554432 "$@"
 SH
 chmod 755 "$out/bin/start"
+
+# Libraries Chromium links but a screenless browser never calls. Found by
+# booting with stubs that report any call: GLib, D-Bus and udev had to stay.
+"$(dirname "$0")/stub-libs.sh" "$out" libcups.so.2 libatk-1.0.so.0 libatk-bridge-2.0.so.0 \
+  libatspi.so.0 libX11.so.6 libXcomposite.so.1 libXdamage.so.1 libXext.so.6 libXfixes.so.3 \
+  libXrandr.so.2 libxcb.so.1 libxkbcommon.so.0 libgbm.so.1 libcairo.so.2 libpango-1.0.so.0 \
+  libgobject-2.0.so.0 libgio-2.0.so.0
 du -sh "$out"

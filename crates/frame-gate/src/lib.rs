@@ -18,6 +18,9 @@ use std::net::{
 };
 use std::time::Duration;
 
+#[cfg(kani)]
+mod proofs;
+
 /// Longest host name in DNS.
 pub const MAX_NAME: usize = 253;
 /// How long a guest gets to finish its request.

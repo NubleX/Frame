@@ -6,4 +6,5 @@ publish.workspace = true
 
 [dependencies]
 frame-membrane = { path = "../../crates/frame-membrane" }
+font8x8 = { version = "0.3", default-features = false }
 minifb = "0.28"

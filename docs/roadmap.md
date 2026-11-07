@@ -29,7 +29,7 @@ Durations are rough estimates, not measurements. Revise them after Phase 0.
 |---|---|---|---|
 | Suricata in the gate | 5/10 | 2 | Real detection behind Shield SIEM |
 | Snapshot-forked compartments | 7/10 | 2 | A fresh VM per link. Forks must reseed RNG state |
-| Verified membrane | 9/10 | 3 onward | Proofs for the trusted core, using Verus |
+| Verified membrane | 9/10 | Started | [First proofs](proofs.md) done with Kani. Full decoders still open |
 | Roaming compartments over a mesh | 8/10 | 4 | Sessions move between devices, using iroh or gonc |
 | Draw-command streaming | 9/10 | 4 | Lower CPU and bandwidth than pixels, but adds a hostile parser |
 | Crowd-following traffic shaping | 9/10 | 5 | Research only |
@@ -39,6 +39,6 @@ Durations are rough estimates, not measurements. Revise them after Phase 0.
 - Legal check on H.264 and AAC before Beta. Codec support is visible to sites, and shipping them in a paid product can need patent licences.
 - Trademark check on "Frame" before the first paid release. Valve sells a product called Steam Frame.
 - A maximum CEF lag behind Chrome stable, as a release rule.
-- A build machine. Chromium cannot be built on the current dev box.
+- A build machine for [Frame's own Chromium](../prototype/own-build/README.md). The dev laptop has 17 GB of disk free, and Chromium asks for at least 100 GB.
 - Host backends for macOS and Windows, per [ADR 0009](adr/0009-one-guest-thin-host.md). Windows needs a hypervisor choice, since libkrun does not run there.
 - Measure scrolling, video, WebGL and several compartments at once. Spike 1 covered none of these.

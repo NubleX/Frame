@@ -1,0 +1,33 @@
+# Frame's Chromium: headless, with no desktop libraries. Every name was checked
+# against the Chromium 156.0.8078.80 source, but this set has not been built.
+# Each removal must also pass the print gate: dropping audio, for example, can
+# change what pages see.
+
+is_official_build = true
+is_debug = false
+symbol_level = 0
+
+# No windows: off-screen rendering only.
+ozone_platform = "headless"
+ozone_platform_headless = true
+ozone_platform_x11 = false
+ozone_platform_wayland = false
+use_gtk = false
+use_atk = false
+use_xkbcommon = false
+
+# Nothing a screenless compartment has.
+use_cups = false
+enable_printing = false
+use_dbus = false
+use_udev = false
+use_alsa = false
+use_pulseaudio = false
+use_vaapi = false
+use_kerberos = false
+
+# Chromium's own libraries instead of the distribution's.
+use_gio = false
+use_glib = false
+use_nss_client_certs = false
+use_nss_server_certs = false

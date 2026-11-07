@@ -12,6 +12,8 @@ cargo fmt --all
 
 Fuzzing needs `cargo-fuzz` and a nightly toolchain: `cargo +nightly fuzz run membrane`.
 
+Proofs need [Kani](https://github.com/model-checking/kani). Run `cargo kani` inside `crates/frame-gate` or `crates/frame-membrane`. See `docs/proofs.md`.
+
 ## The four invariants
 
 Every change must keep these. Each needs a test that fails if it breaks.

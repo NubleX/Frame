@@ -11,7 +11,7 @@
 use cef::args::Args;
 use cef::*;
 use frame_membrane::{
-    Command, DecodeError, Key, Modifiers, MouseButton, Observation, decode_command,
+    Command, DecodeError, Key, Modifiers, MouseButton, Observation, Zoom, decode_command,
 };
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -170,18 +170,54 @@ fn virtual_key(key: Key) -> i32 {
     }
 }
 
-fn key_event(
-    host: &BrowserHost,
-    kind: sys::cef_key_event_type_t,
+/// The hardware key code. The guest is always the same Linux, so this is one
+/// fixed table. Without it, pages see an empty `event.code`.
+fn native_key(key: Key) -> i32 {
+    match key {
+        Key::Escape => 9,
+        Key::Backspace => 22,
+        Key::Tab => 23,
+        Key::Enter => 36,
+        Key::Home => 110,
+        Key::Up => 111,
+        Key::PageUp => 112,
+        Key::Left => 113,
+        Key::Right => 114,
+        Key::End => 115,
+        Key::Down => 116,
+        Key::PageDown => 117,
+        Key::Delete => 119,
+    }
+}
+
+/// The same for typed characters, on a US layout. Others have no hardware code.
+fn native_character(character: char) -> i32 {
+    const ROWS: [(&str, i32); 5] = [
+        ("1234567890", 10),
+        ("qwertyuiop", 24),
+        ("asdfghjkl", 38),
+        ("zxcvbnm", 52),
+        (" ", 65),
+    ];
+    let lower = character.to_ascii_lowercase();
+    ROWS.iter()
+        .find_map(|(row, first)| Some(first + row.find(lower)? as i32))
+        .unwrap_or(0)
+}
+
+struct KeyPress {
     code: i32,
-    unit: u16,
+    native: i32,
     modifiers: u32,
-) {
+}
+
+fn key_event(host: &BrowserHost, kind: sys::cef_key_event_type_t, press: &KeyPress, unit: u16) {
     let event = KeyEvent {
         size: std::mem::size_of::<sys::_cef_key_event_t>(),
         type_: kind.into(),
-        modifiers,
-        windows_key_code: code,
+        modifiers: press.modifiers,
+        windows_key_code: press.code,
+        native_key_code: press.native,
         character: unit,
         unmodified_character: unit,
         ..Default::default()
@@ -190,43 +226,38 @@ fn key_event(
 }
 
 fn press_named(host: &BrowserHost, key: Key, modifiers: u32) {
-    let code = virtual_key(key);
-    key_event(
-        host,
-        sys::cef_key_event_type_t::KEYEVENT_RAWKEYDOWN,
-        code,
-        0,
+    let press = KeyPress {
+        code: virtual_key(key),
+        native: native_key(key),
         modifiers,
-    );
-    if key == Key::Enter {
-        key_event(
-            host,
-            sys::cef_key_event_type_t::KEYEVENT_CHAR,
-            code,
-            0x0d,
-            modifiers,
-        );
-    }
-    key_event(
-        host,
-        sys::cef_key_event_type_t::KEYEVENT_KEYUP,
-        code,
-        0,
-        modifiers,
-    );
-}
-
-fn type_character(host: &BrowserHost, character: char) {
-    let code = if character.is_ascii_alphanumeric() {
-        i32::from(character.to_ascii_uppercase() as u8)
-    } else {
-        0
     };
     key_event(
         host,
         sys::cef_key_event_type_t::KEYEVENT_RAWKEYDOWN,
-        code,
+        &press,
         0,
+    );
+    if key == Key::Enter {
+        key_event(host, sys::cef_key_event_type_t::KEYEVENT_CHAR, &press, 0x0d);
+    }
+    key_event(host, sys::cef_key_event_type_t::KEYEVENT_KEYUP, &press, 0);
+}
+
+fn type_character(host: &BrowserHost, character: char) {
+    let code = if character.is_ascii_alphanumeric() || character == ' ' {
+        i32::from(character.to_ascii_uppercase() as u8)
+    } else {
+        0
+    };
+    let press = KeyPress {
+        code,
+        native: native_character(character),
+        modifiers: 0,
+    };
+    key_event(
+        host,
+        sys::cef_key_event_type_t::KEYEVENT_RAWKEYDOWN,
+        &press,
         0,
     );
     let mut units = [0; 2];
@@ -234,12 +265,11 @@ fn type_character(host: &BrowserHost, character: char) {
         key_event(
             host,
             sys::cef_key_event_type_t::KEYEVENT_CHAR,
-            code,
+            &press,
             *unit,
-            0,
         );
     }
-    key_event(host, sys::cef_key_event_type_t::KEYEVENT_KEYUP, code, 0, 0);
+    key_event(host, sys::cef_key_event_type_t::KEYEVENT_KEYUP, &press, 0);
 }
 
 fn mouse(x: u16, y: u16, buttons: u32) -> MouseEvent {
@@ -311,6 +341,14 @@ fn apply(browser: &Browser, command: Command, buttons: &mut u32) {
         ),
         Command::Key { key, modifiers } => press_named(&host, key, flags(modifiers)),
         Command::Text { character } => type_character(&host, character),
+        Command::Zoom { step } => {
+            let command = match step {
+                Zoom::In => sys::cef_zoom_command_t::CEF_ZOOM_COMMAND_IN,
+                Zoom::Out => sys::cef_zoom_command_t::CEF_ZOOM_COMMAND_OUT,
+                Zoom::Reset => sys::cef_zoom_command_t::CEF_ZOOM_COMMAND_RESET,
+            };
+            host.zoom(command.into());
+        }
     }
 }
 
@@ -636,6 +674,9 @@ wrap_browser_process_handler! {
             };
             let settings = BrowserSettings {
                 windowless_frame_rate: 15,
+                // Opaque white, as in any browser. The default is transparent,
+                // which shows as black in a window with no alpha.
+                background_color: 0xffff_ffff,
                 ..Default::default()
             };
             let paint = Paint::new(self.latest.clone(), self.started, Arc::new(Mutex::new(0)));

@@ -1,4 +1,7 @@
-//! Runs the gate. Usage: `frame-gate <socket>`
+//! Runs the gate. Usage: `frame-gate <socket> [--lifeline]`
+//!
+//! With `--lifeline` it exits when stdin closes, so it cannot outlive the
+//! program that started it.
 //!
 //! Only this listener is per OS. The rules live in the library.
 
@@ -22,7 +25,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let socket = std::env::args()
         .nth(1)
-        .ok_or("usage: frame-gate <socket>")?;
+        .ok_or("usage: frame-gate <socket> [--lifeline]")?;
+    if std::env::args().nth(2).as_deref() == Some("--lifeline") {
+        std::thread::spawn(|| {
+            let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
+            std::process::exit(0);
+        });
+    }
     let _ = remove_file(&socket);
     let listener = UnixListener::bind(&socket)?;
     set_permissions(&socket, Permissions::from_mode(0o600))?;

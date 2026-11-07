@@ -4,7 +4,8 @@
 
 use frame_membrane::{
     Command, DecodeError, EncodeError, HEADER_LEN, Header, Key, MAX_HEADERS, MAX_PAYLOAD, MAX_TEXT,
-    Modifiers, MouseButton, Observation, Protocol, VERSION, decode_command, decode_observation,
+    Modifiers, MouseButton, Observation, Protocol, VERSION, Zoom, decode_command,
+    decode_observation,
 };
 
 fn frame(kind: u8, payload: &[u8]) -> Vec<u8> {
@@ -136,7 +137,7 @@ fn wrong_version_is_refused() {
 
 #[test]
 fn undefined_kinds_are_refused() {
-    for kind in [0x00, 0x07, 0x7f, 0x80, 0x8b, 0xff] {
+    for kind in [0x00, 0x07, 0x7f, 0x80, 0x8c, 0xff] {
         assert_eq!(
             decode_observation(&frame(kind, &[])),
             Err(DecodeError::UnknownKind),
@@ -366,6 +367,9 @@ fn input_commands_round_trip() {
             modifiers,
         },
         Command::Text { character: 'é' },
+        Command::Zoom { step: Zoom::In },
+        Command::Zoom { step: Zoom::Out },
+        Command::Zoom { step: Zoom::Reset },
     ] {
         let frame = command.encode().unwrap();
         assert_eq!(decode_command(&frame), Ok((command, frame.len())));
@@ -431,5 +435,12 @@ fn refuses_control_and_invalid_characters() {
     frame[HEADER_LEN..].copy_from_slice(&0xd800u32.to_be_bytes());
     assert_eq!(decode_command(&frame), Err(DecodeError::BadValue));
     frame[HEADER_LEN..].copy_from_slice(&0x0au32.to_be_bytes());
+    assert_eq!(decode_command(&frame), Err(DecodeError::BadValue));
+}
+
+#[test]
+fn refuses_an_unknown_zoom_step() {
+    let mut frame = Command::Zoom { step: Zoom::In }.encode().unwrap();
+    frame[HEADER_LEN] = 3;
     assert_eq!(decode_command(&frame), Err(DecodeError::BadValue));
 }

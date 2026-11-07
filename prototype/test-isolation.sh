@@ -100,5 +100,29 @@ if [ -d "$work/root/frame" ]; then
   grep -Eq '^SANDBOX .*NetworkService .*seccomp=2' "$log" \
     && pass "the network service is sandboxed" || fail "the network service is not sandboxed"
 fi
+
+# The lifeline: when whatever started the VM goes, the VM goes with it, even
+# if it dies without any chance to clean up.
+if [ -d "$work/root/frame" ]; then
+  krun=$(realpath "$work/prefix/krun")
+  pipe="$run/lifeline"
+  mkfifo "$pipe"
+  LD_LIBRARY_PATH="$krun" "$work/target/release/launcher" "$work/root" 256 2 "$krun" "$run" --lifeline -- \
+    /bin/sleep 60 < "$pipe" > /dev/null 2>&1 &
+  held=$!
+  sleep 60 > "$pipe" &
+  holder=$!
+  sleep 3
+  vm=$(pgrep -P "$held" | head -1)
+  [ -n "$vm" ] || fail "lifeline test: VM did not start"
+  kill -9 "$holder"
+  sleep 2
+  if kill -0 "$held" 2>/dev/null || { [ -n "$vm" ] && kill -0 "$vm" 2>/dev/null; }; then
+    fail "the VM outlived its owner"
+    kill -9 "$held" "$vm" 2>/dev/null
+  else
+    pass "the VM dies with its owner"
+  fi
+fi
 echo "failures: $fails"
 exit "$fails"

@@ -23,7 +23,7 @@ pub enum Entered {
 pub use linux::enter;
 
 #[cfg(not(target_os = "linux"))]
-pub fn enter(_paths: &JailPaths) -> crate::Outcome<Entered> {
+pub fn enter(_paths: &JailPaths, _lifeline: bool) -> crate::Outcome<Entered> {
     Err("no jail for this OS yet, refusing to start".into())
 }
 
@@ -35,16 +35,19 @@ mod linux {
     use crate::{Outcome, step};
     use caps::{CapSet, clear};
     use nix::mount::{MntFlags, MsFlags, mount, umount2};
+    use nix::poll::{PollFd, PollFlags, poll};
     use nix::sched::{CloneFlags, unshare};
     use nix::sys::prctl::{set_no_new_privs, set_pdeathsig};
     use nix::sys::signal::Signal;
     use nix::sys::statvfs::{FsFlags, statvfs};
-    use nix::sys::wait::{WaitStatus, waitpid};
-    use nix::unistd::{ForkResult, Gid, Uid, chdir, fork, pivot_root};
+    use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
+    use nix::unistd::{ForkResult, Gid, Pid, Uid, chdir, fork, pivot_root};
     use std::fs::{self, File};
+    use std::os::fd::AsFd;
     use std::path::{Path, PathBuf};
 
     const JAIL_ROOT: &str = "/mnt";
+    const POLL_MS: u16 = 200;
 
     fn inside(path: &Path) -> PathBuf {
         Path::new(JAIL_ROOT).join(path.strip_prefix("/").unwrap_or(path))
@@ -198,15 +201,36 @@ mod linux {
         Ok(())
     }
 
+    /// Waits for the VM. With a lifeline, also returns once stdin closes, and
+    /// this process exiting kills the jailed child through its death signal.
+    /// This is one loop because a process that entered a new PID namespace can
+    /// no longer start threads.
+    fn supervise(child: Pid, lifeline: bool) -> Outcome<i32> {
+        let flags = lifeline.then_some(WaitPidFlag::WNOHANG);
+        loop {
+            match step("wait", waitpid(child, flags))? {
+                WaitStatus::StillAlive => {}
+                WaitStatus::Exited(_, code) => return Ok(code),
+                _ => return Ok(1),
+            }
+            let stdin = std::io::stdin();
+            let mut watched = [PollFd::new(stdin.as_fd(), PollFlags::empty())];
+            step("poll", poll(&mut watched, POLL_MS))?;
+            if watched[0]
+                .revents()
+                .is_some_and(|events| !events.is_empty())
+            {
+                return Ok(0);
+            }
+        }
+    }
+
     /// Jails this process. Must run before any other thread exists.
-    pub fn enter(paths: &JailPaths) -> Outcome<Entered> {
+    pub fn enter(paths: &JailPaths, lifeline: bool) -> Outcome<Entered> {
         enter_namespaces()?;
         // SAFETY: no other threads exist yet, so the child inherits a sound state.
         match step("fork", unsafe { fork() })? {
-            ForkResult::Parent { child } => match step("wait", waitpid(child, None))? {
-                WaitStatus::Exited(_, code) => Ok(Entered::Supervisor(code)),
-                _ => Ok(Entered::Supervisor(1)),
-            },
+            ForkResult::Parent { child } => Ok(Entered::Supervisor(supervise(child, lifeline)?)),
             ForkResult::Child => {
                 step("parent watch", set_pdeathsig(Signal::SIGKILL))?;
                 build_root(&paths.guest_root, &paths.krun_dir, &paths.sockets)?;

@@ -13,6 +13,7 @@ repository = "https://github.com/NubleX/Frame"
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }

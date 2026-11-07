@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(kani)]
+mod proofs;
+
 /// The only accepted format version.
 pub const VERSION: u8 = 1;
 /// Bytes before the payload.
@@ -41,6 +44,7 @@ const KIND_MOUSE_BUTTON: u8 = 0x87;
 const KIND_WHEEL: u8 = 0x88;
 const KIND_KEY: u8 = 0x89;
 const KIND_TEXT: u8 = 0x8a;
+const KIND_ZOOM: u8 = 0x8b;
 
 /// One HTTP header as observed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -178,6 +182,17 @@ const KEYS: [Key; 13] = [
     Key::PageDown,
 ];
 
+/// A step of page zoom.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Zoom {
+    /// Larger.
+    In,
+    /// Smaller.
+    Out,
+    /// Back to normal.
+    Reset,
+}
+
 /// Keys held with another key.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Modifiers {
@@ -261,6 +276,11 @@ pub enum Command {
     Text {
         /// The character.
         character: char,
+    },
+    /// Change the page zoom.
+    Zoom {
+        /// Which way.
+        step: Zoom,
     },
 }
 
@@ -409,11 +429,12 @@ fn split_frame(buffer: &[u8]) -> Result<(u8, &[u8], usize), DecodeError> {
     let Some(header) = buffer.first_chunk::<HEADER_LEN>() else {
         return Err(DecodeError::Incomplete);
     };
-    let [version, kind, length @ ..] = *header;
+    let [version, kind, length_0, length_1, length_2, length_3] = *header;
     if version != VERSION {
         return Err(DecodeError::BadVersion);
     }
-    let length = usize::try_from(u32::from_be_bytes(length)).map_err(|_| DecodeError::Oversize)?;
+    let length = u32::from_be_bytes([length_0, length_1, length_2, length_3]);
+    let length = usize::try_from(length).map_err(|_| DecodeError::Oversize)?;
     if length > MAX_PAYLOAD {
         return Err(DecodeError::Oversize);
     }
@@ -429,7 +450,7 @@ fn is_observation_kind(kind: u8) -> bool {
 }
 
 fn is_command_kind(kind: u8) -> bool {
-    (KIND_NAVIGATE..=KIND_TEXT).contains(&kind)
+    (KIND_NAVIGATE..=KIND_ZOOM).contains(&kind)
 }
 
 /// Decodes one observation. Returns it with the bytes consumed.
@@ -559,6 +580,14 @@ pub fn decode_command(buffer: &[u8]) -> Result<(Command, usize), DecodeError> {
                 .get(usize::from(reader.u8()?))
                 .ok_or(DecodeError::BadValue)?,
             modifiers: Modifiers::from_bits(reader.u8()?).ok_or(DecodeError::BadValue)?,
+        },
+        KIND_ZOOM => Command::Zoom {
+            step: match reader.u8()? {
+                0 => Zoom::In,
+                1 => Zoom::Out,
+                2 => Zoom::Reset,
+                _ => return Err(DecodeError::BadValue),
+            },
         },
         KIND_TEXT => Command::Text {
             character: char::from_u32(reader.u32()?)
@@ -773,6 +802,14 @@ impl Command {
                 }
                 writer.u32(u32::from(*character));
                 KIND_TEXT
+            }
+            Self::Zoom { step } => {
+                writer.u8(match step {
+                    Zoom::In => 0,
+                    Zoom::Out => 1,
+                    Zoom::Reset => 2,
+                });
+                KIND_ZOOM
             }
         };
         writer.finish(kind)
