@@ -238,7 +238,7 @@ The prototype does not use every crate yet: `frame-gate` and `frame-membrane` ru
 
 ## Credits
 
-**Frame exists because of the [Chromium Embedded Framework](https://github.com/chromiumembedded/cef).** CEF is the engine of this browser: it is what lets Frame render real web pages off-screen and hand over nothing but pixels. Thank you to Marshall Greenblatt, who created it, and to everyone who has maintained it since. Thanks also to [Spotify](https://cef-builds.spotifycdn.com/index.html) for hosting the CEF builds Frame downloads, and to the [Chromium](https://www.chromium.org/) project underneath it all.
+**Frame exists because of the [Chromium Embedded Framework](https://github.com/chromiumembedded/cef).** CEF is the engine of this browser: it is what lets Frame render real web pages off-screen and hand over nothing but pixels. Thank you to Marshall Greenblatt ([@magreenblatt](https://github.com/magreenblatt)), who created it, and to everyone who has maintained it since. Thanks also to [Spotify](https://cef-builds.spotifycdn.com/index.html) for hosting the CEF builds Frame downloads, and to the [Chromium](https://www.chromium.org/) project underneath it all.
 
 Frame also stands on:
 
