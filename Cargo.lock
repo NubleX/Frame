@@ -30,26 +30,26 @@ dependencies = [
 
 [[package]]
 name = "frame-compartment"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "frame-vmm",
 ]
 
 [[package]]
 name = "frame-gate"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "frame-membrane"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "frame-policy"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "frame-profile"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "serde",
  "toml",
@@ -57,14 +57,14 @@ dependencies = [
 
 [[package]]
 name = "frame-siem"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "url",
 ]
 
 [[package]]
 name = "frame-vmm"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "hashbrown"

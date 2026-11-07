@@ -26,17 +26,17 @@ The image is still 345 MB, because `libcef.so` itself is most of it. Only a real
 
 ## Use
 
-Needs `/dev/kvm`, libkrun, libkrunfw and a CEF binary, set up as in [Spike 1](../spikes/001-cef-in-microvm/README.md). `<work>` holds `prefix/krun`, `target/release` and `root`.
+Needs `/dev/kvm`, Rust, a C toolchain, `cmake`, `ninja`, `git`, `curl`, `busybox`, and Chromium's shared libraries on the build machine. `setup.sh` fetches pinned, hash-checked dependencies and builds everything into one folder. Nothing is installed system-wide.
 
 ```bash
-CEF_PATH=<work>/cef-store CARGO_TARGET_DIR=<work>/target KRUN_LIB_DIR=<work>/prefix/krun cargo build --release
+./setup.sh <work>
 ```
 
-Run the same build from the repo root with `-p frame-gate`, then:
+```bash
+./run.sh <work> https://example.com
+```
 
 ```bash
-./build-rootfs.sh <work>/target/release/engine <cef-dir> <work>/root
-./run.sh <work> https://example.com
 ./test-isolation.sh <work>
 ```
 
@@ -57,7 +57,7 @@ The bar is drawn on the host, so a page cannot paint over it. Anything outside A
 On one Linux x86_64 laptop, in a 1 GiB guest.
 
 - `test-isolation.sh`: a real guest cannot reach listeners on host loopback or the LAN address, or reach the internet directly. The VMM shares no network or PIDs with the host, sees no host files, and holds no capabilities.
-- Through the browser, the gate refused `192.168.1.185`, `127.0.0.1` and `localhost`.
+- Through the browser, the gate refused the host's LAN address, `127.0.0.1` and `localhost`.
 - Address entry, wheel, Page Down, back, forward, clicking links and typing a search into a real page all worked.
 - The guest kernel reports seccomp filters on sandboxed processes, including the network service, and no browser process as root.
 - On the lean image, no stub was reached across idarti.com, Wikipedia, a DuckDuckGo search, GitHub, or a page using audio, canvas and WebGL. Real video was not tried.
