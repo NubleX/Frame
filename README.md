@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/frame-banner.jpeg" alt="Frame: a barebone, stripped-down privacy browser" width="860">
+
 # Frame
 
 **A standalone browser with a boring outside.**
@@ -95,7 +97,7 @@ Frame does not depend on how a machine is set up. The rules live in code that be
 
 Privacy browsers often stand out through how hard they hide. Frame takes the opposite approach: no canvas noise, no spoofed values, no claiming to be something it is not. It runs a plain Chromium with the bare minimum around it, and the protection sits outside, where a page cannot see it.
 
-Frame does not promise anonymity. On the default route, sites see your IP address like any browser.
+Anonymity is where Frame is heading, and it is not there in 0.0.1. On the default route, sites see your IP address like any browser. Routes that hide it are on the [roadmap](docs/roadmap.md).
 
 ## Measured
 
